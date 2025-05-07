@@ -1,0 +1,3 @@
+bin.name = "checklist"
+args = ["--no-user-checklists", "--no-cache", "--check", "../../../checklists"]
+env.add = { RUST_LOG = "debug" }                                                # for debugging

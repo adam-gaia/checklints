@@ -1,0 +1,3 @@
+> Running checklist 'rust'
+[PASS] README should follow the standard format [..]
+[PASS] Cargo lockfile should exist [..]

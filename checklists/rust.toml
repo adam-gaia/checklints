@@ -1,0 +1,30 @@
+[[condition]]
+type = "file"
+path = "Cargo.toml"
+description = "Rust project defined by Cargo.toml"
+
+[[condition]]
+type = "file"
+path = "src/main.rs"
+description = "Single package repository (not a workspace)"
+
+[[fact]]
+key = "PROJECT_NAME"
+type = "eval-command"
+command = "toml-path --raw-output package.name Cargo.toml"
+
+[[fact]]
+key = "SHORT_DESCRIPTION"
+type = "eval-command"
+command = "toml-path --raw-output package.description Cargo.toml"
+
+[[check]]
+type = "file"
+path = "README.md"
+template = "templates/rust-README.md.j2"
+description = "README should follow standard format"
+
+[[check]]
+type = "file"
+path = "Cargo.lock"
+description = "Cargo lockfile should exist"
