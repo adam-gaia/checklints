@@ -28,3 +28,8 @@ description = "README should follow standard format"
 type = "file"
 path = "Cargo.lock"
 description = "Cargo lockfile should exist"
+
+[[check]]
+type = "directory"
+path = "src"
+contains = ["main.rs"]

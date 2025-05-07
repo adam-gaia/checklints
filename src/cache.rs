@@ -224,6 +224,10 @@ impl Cache {
                     None => None,
                 }
             }
+            CheckType::Directory(d) => {
+                // TODO
+                None
+            }
             CheckType::Command(c) => {
                 // TODO
                 None

@@ -44,7 +44,16 @@ struct Cli {
     #[clap(value_name = "PROJECT_DIR")]
     project_dir: Option<PathBuf>,
 
-    /// Do not try to read from cache
+    /// Do not read from cache
+    #[clap(long)]
+    no_read_cache: bool,
+
+    /// Do not write to cache
+    #[clap(long)]
+    no_write_cache: bool,
+
+    /// Do not try to read from or write to cache
+    /// Implies 'no-read-cache' and 'no-write-cache'
     #[clap(short, long)]
     no_cache: bool,
 

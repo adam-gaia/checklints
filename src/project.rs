@@ -140,18 +140,27 @@ impl<'a> Project<'a> {
 
         let cache = match Cache::load(cache_dir.clone(), project_name.to_string())? {
             Some(cache) => {
-                if *cache.facts() == facts {
+                let cache = if *cache.facts() == facts {
                     cache
                 } else {
                     // Facts are out of date, remove old cache entry and create new one
                     let cache_dir = cache.cache_dir();
-                    fs::remove_dir_all(&cache_dir)?;
+                    fs::remove_dir_all(&cache_dir)?; // TODO: make a method to remove the cache for DRY
                     Cache::new(
                         cache_dir.to_path_buf(),
                         project_name.to_string(),
                         facts.clone(),
                     )
-                }
+                };
+
+                let cache = if settings.clear_cache() {
+                    fs::remove_dir_all(&cache_dir)?;
+                    Cache::new(cache_dir.clone(), project_name.to_string(), facts.clone())
+                } else {
+                    cache
+                };
+
+                cache
             }
             None => Cache::new(cache_dir.clone(), project_name.to_string(), facts.clone()),
         };
@@ -179,21 +188,37 @@ impl<'a> Project<'a> {
                 let check_name = check.description();
                 debug!("Running check: {check_name}");
 
-                let status = match self.cache.get(check)? {
-                    Some(status) => {
-                        debug!("Check '{check_name}' status pulled from cache");
-                        status
-                    }
-                    None => {
-                        let status = check.do_check(
-                            &self.diff_settings,
-                            &self.template_env,
-                            checklist_path,
-                            &self.facts,
-                        )?;
+                let status = if self.settings.no_read_cache() {
+                    let status = match self.cache.get(check)? {
+                        Some(status) => {
+                            debug!("Check '{check_name}' status pulled from cache");
+                            status
+                        }
+                        None => {
+                            let status = check.do_check(
+                                &self.diff_settings,
+                                &self.template_env,
+                                checklist_path,
+                                &self.facts,
+                            )?;
+                            if !self.settings.no_write_cache() {
+                                self.cache.insert(check.clone(), status.clone())?;
+                            }
+                            status
+                        }
+                    };
+                    status
+                } else {
+                    let status = check.do_check(
+                        &self.diff_settings,
+                        &self.template_env,
+                        checklist_path,
+                        &self.facts,
+                    )?;
+                    if !self.settings.no_write_cache() {
                         self.cache.insert(check.clone(), status.clone())?;
-                        status
                     }
+                    status
                 };
 
                 statuses.insert(checklist_path.to_path_buf(), check_name.to_string(), status);

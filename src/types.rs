@@ -82,7 +82,9 @@ trait CheckTrait {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-struct FileFileCheck {
+pub struct FileCheck {
+    path: PathBuf,
+
     /// Exact contents of file
     contents: Option<String>,
 
@@ -95,12 +97,18 @@ struct FileFileCheck {
     template: Option<PathBuf>,
 }
 
-impl FileFileCheck {
-    fn describe(&self, path: &Path) -> String {
-        let mut s = format!("File {}: must exist", path.display());
+impl FileCheck {
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+impl CheckTrait for FileCheck {
+    fn describe(&self) -> String {
+        let mut s = format!("File {}: must exist", self.path.display());
 
         if !self.contains.is_empty() {
-            s.push_str(&format!(", must contain {:?}", self.contents));
+            s.push_str(&format!(", must contain {:?}", self.contains));
         }
 
         if let Some(contents) = &self.contents {
@@ -112,20 +120,19 @@ impl FileFileCheck {
 
     fn do_check(
         &self,
-        path: &Path,
         diff_settings: &DiffSettings,
         env: &Environment,
         this_file_path: &Path,
         vars: &HashMap<String, String>,
     ) -> Result<Status> {
-        if !path.is_file() {
+        if !self.path.is_file() {
             return Ok(Status::fail(
                 String::from("Path is not a valid file"),
-                Some(path.display().to_string()),
+                Some(self.path.display().to_string()),
             ));
         }
 
-        let actual_contents = fs::read_to_string(&path)?;
+        let actual_contents = fs::read_to_string(&self.path)?;
 
         if let Some(expected_contents) = &self.contents {
             if let Some(diff) = str_compare(expected_contents, &actual_contents, diff_settings) {
@@ -141,7 +148,7 @@ impl FileFileCheck {
                 if !actual_contents.contains(expected_fragment) {
                     return Ok(Status::fail(
                         String::from("Expected fragment not found in file"),
-                        Some(format!("{}\n{expected_fragment}", path.display())),
+                        Some(format!("{}\n{expected_fragment}", self.path.display())),
                     ));
                 }
             }
@@ -159,7 +166,7 @@ impl FileFileCheck {
             let templ = env.get_template(template_name)?;
             debug!(
                 "Checking '{}' against template '{}'",
-                path.display(),
+                self.path.display(),
                 template_name
             );
 
@@ -187,7 +194,9 @@ fn dir_contents(dir: &Path) -> Result<Vec<PathBuf>> {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-struct DirectoryFileCheck {
+pub struct DirectoryCheck {
+    path: PathBuf,
+
     /// Exact contents of directory
     /// TODO: make vec<enum(file|directory)>?
     #[serde(default)]
@@ -199,12 +208,12 @@ struct DirectoryFileCheck {
     contains: Vec<String>,
 }
 
-impl DirectoryFileCheck {
-    fn describe(&self, path: &Path) -> String {
-        let mut s = format!("Directory {}: must exist", path.display());
+impl CheckTrait for DirectoryCheck {
+    fn describe(&self) -> String {
+        let mut s = format!("Directory {}: must exist", &self.path.display());
 
         if !self.contains.is_empty() {
-            s.push_str(&format!(", must contain {:?}", self.contents));
+            s.push_str(&format!(", must contain {:?}", self.contains));
         }
 
         if !self.contents.is_empty() {
@@ -219,22 +228,26 @@ impl DirectoryFileCheck {
 
     fn do_check(
         &self,
-        path: &Path,
         diff_settings: &DiffSettings,
+        env: &Environment,
+        this_file_path: &Path,
         vars: &HashMap<String, String>,
     ) -> Result<Status> {
-        if !path.is_dir() {
+        if !self.path.is_dir() {
             return Ok(Status::fail(
                 String::from("Path is not a valid directory"),
-                Some(path.display().to_string()),
+                Some(self.path.display().to_string()),
             ));
         }
 
-        let actual_contents = dir_contents(&path)?;
+        let actual_contents = dir_contents(&self.path)?;
 
         if !self.contents.is_empty() {
-            let expected_contents: Vec<PathBuf> =
-                self.contents.iter().map(|name| path.join(name)).collect();
+            let expected_contents: Vec<PathBuf> = self
+                .contents
+                .iter()
+                .map(|name| self.path.join(name))
+                .collect();
             if let Some(diff) = dir_compare(&expected_contents, &actual_contents, diff_settings) {
                 return Ok(Status::fail(
                     String::from("Contents differ"),
@@ -245,13 +258,13 @@ impl DirectoryFileCheck {
 
         if !self.contains.is_empty() {
             for name in &self.contains {
-                let expected_path = path.join(name);
+                let expected_path = self.path.join(name);
                 if !actual_contents.contains(&expected_path) {
                     return Ok(Status::fail(
                         String::from("Expected entry not found in directory"),
                         Some(format!(
                             "dir: {}, path: {}",
-                            path.display(),
+                            self.path.display(),
                             expected_path.display()
                         )),
                     ));
@@ -260,69 +273,6 @@ impl DirectoryFileCheck {
         }
 
         Ok(Status::new(false, StatusStatus::Pass))
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-//#[serde(tag = "filetype")]
-#[serde(untagged)]
-enum FileCheckType {
-    File(FileFileCheck),
-    Directory(DirectoryFileCheck),
-}
-
-impl FileCheckType {
-    fn describe(&self, path: &Path) -> String {
-        match self {
-            Self::File(f) => f.describe(path),
-            Self::Directory(d) => d.describe(path),
-        }
-    }
-
-    fn do_check(
-        &self,
-        path: &Path,
-        diff_settings: &DiffSettings,
-        env: &Environment,
-        this_file_path: &Path,
-        vars: &HashMap<String, String>,
-    ) -> Result<Status> {
-        match self {
-            Self::File(f) => f.do_check(path, diff_settings, env, this_file_path, vars),
-            Self::Directory(d) => d.do_check(path, diff_settings, vars),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct FileCheck {
-    /// File path, relative to project directory
-    path: PathBuf,
-
-    #[serde(flatten)]
-    ttype: FileCheckType,
-}
-
-impl FileCheck {
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-}
-
-impl CheckTrait for FileCheck {
-    fn describe(&self) -> String {
-        self.ttype.describe(&self.path)
-    }
-
-    fn do_check(
-        &self,
-        diff_settings: &DiffSettings,
-        env: &Environment,
-        this_file_path: &Path,
-        vars: &HashMap<String, String>,
-    ) -> Result<Status> {
-        self.ttype
-            .do_check(&self.path, diff_settings, env, this_file_path, vars)
     }
 }
 
@@ -437,6 +387,7 @@ impl CheckTrait for VarCheck {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum CheckType {
     File(FileCheck),
+    Directory(DirectoryCheck),
     Command(CommandCheck),
     Http(HttpCheck),
     VarSet(VarCheck),
@@ -446,6 +397,7 @@ impl CheckType {
     fn describe(&self) -> String {
         match self {
             Self::File(f) => f.describe(),
+            Self::Directory(d) => d.describe(),
             Self::Command(c) => c.describe(),
             Self::Http(h) => h.describe(),
             Self::VarSet(v) => v.describe(),
@@ -461,6 +413,7 @@ impl CheckType {
     ) -> Result<Status> {
         match self {
             Self::File(f) => f.do_check(diff_settings, env, this_file_path, vars),
+            Self::Directory(d) => d.do_check(diff_settings, env, this_file_path, vars),
             Self::Command(c) => c.do_check(diff_settings, env, this_file_path, vars),
             Self::Http(h) => h.do_check(diff_settings, env, this_file_path, vars),
             Self::VarSet(v) => v.do_check(diff_settings, env, this_file_path, vars),
@@ -610,18 +563,14 @@ impl Checklist {
         for check in &self.checks.checks {
             match &check.check {
                 CheckType::File(f) => {
-                    match &f.ttype {
-                        FileCheckType::File(f) => {
-                            if let Some(name) = &f.template {
-                                let template = rel_to(checklist_path.parent().unwrap(), name);
-                                debug!("found template {}", template.display());
-                                templates.push(template);
-                            }
-                        }
-                        FileCheckType::Directory(d) => {
-                            // TODO
-                        }
+                    if let Some(name) = &f.template {
+                        let template = rel_to(checklist_path.parent().unwrap(), name);
+                        debug!("found template {}", template.display());
+                        templates.push(template);
                     }
+                }
+                CheckType::Directory(d) => {
+                    // TODO
                 }
                 CheckType::Command(c) => {
                     // TODO
@@ -678,7 +627,7 @@ impl Display for Reason {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-enum StatusStatus {
+pub enum StatusStatus {
     Pass,
     Skip { reason: Reason },
     Fail { reason: Reason },
@@ -770,12 +719,17 @@ impl Statuses {
 
     pub fn print(&self) {
         let mut s = String::new();
-        for (checklist_path, checks) in &self.map {
+        let last_index = self.map.len() - 1;
+        for (i, (checklist_path, checks)) in self.map.iter().enumerate() {
             let checklist_name = checklist_path.file_name().unwrap().to_str().unwrap();
             print_section_header(&checklist_name);
 
             for (name, status) in checks {
                 print_status(status, name, None); // TODO: introduce timings back
+            }
+
+            if i < last_index {
+                println!();
             }
         }
     }
