@@ -1,17 +1,17 @@
-use crate::command::run_command;
+use crate::command::{run_command, run_command_line};
 use crate::INDENT;
 use anyhow::{bail, Result};
 use colored::Colorize;
 use different::{line_diff, Diff, DiffSettings};
 use log::debug;
-use minijinja::{context, Environment};
+use minijinja::Environment;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
 use serde_with::{serde_as, DisplayFromStr};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::{env, fs};
 
 fn default_exit_code() -> i32 {
@@ -69,7 +69,7 @@ pub enum HttpMethod {
     Patch,
 }
 
-trait CheckTrait {
+pub trait CheckTrait {
     fn do_check(
         &self,
         diff_settings: &DiffSettings,
@@ -428,6 +428,23 @@ struct Condition {
     condition: CheckType,
 }
 
+impl CheckTrait for Condition {
+    fn do_check(
+        &self,
+        diff_settings: &DiffSettings,
+        env: &Environment,
+        this_file_path: &Path,
+        vars: &HashMap<String, String>,
+    ) -> Result<Status> {
+        self.condition
+            .do_check(diff_settings, env, this_file_path, vars)
+    }
+
+    fn describe(&self) -> String {
+        todo!();
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq, Hash)]
 pub struct Check {
     #[serde(flatten)]
@@ -435,6 +452,8 @@ pub struct Check {
     description: Option<String>,
     #[serde(default)]
     conditions: Vec<Condition>,
+    #[serde(default)]
+    requirements: Vec<Requirement>,
 }
 
 impl Check {
@@ -453,6 +472,20 @@ impl Check {
         this_file_path: &Path,
         vars: &HashMap<String, String>,
     ) -> Result<Status> {
+        for condition in &self.conditions {
+            let status = condition.do_check(diff_settings, env, this_file_path, vars)?;
+            if status.is_skipped() {
+                return Ok(status);
+            }
+        }
+
+        for requirement in &self.requirements {
+            let status = requirement.do_check(diff_settings, env, this_file_path, vars)?;
+            if status.is_failure() {
+                return Ok(status);
+            }
+        }
+
         self.check
             .do_check(diff_settings, env, this_file_path, vars)
     }
@@ -474,15 +507,10 @@ enum FactValue {
 }
 
 impl FactValue {
-    fn value(&self) -> Result<String> {
+    fn value(&self, vars: &HashMap<String, String>) -> Result<String> {
         let value = match self {
             Self::Command { command } => {
-                let args: Vec<_> = command.split_whitespace().collect();
-                let Some((exec, args)) = args.split_first() else {
-                    bail!("Invalid command '{command}'");
-                };
-
-                let output = run_command(exec, args, None)?;
+                let output = run_command_line(&command, Some(vars))?;
                 let Some(stdout) = output.stdout() else {
                     bail!("Command produced empty output");
                 };
@@ -506,6 +534,8 @@ pub struct Fact {
     key: String,
     #[serde(flatten)]
     value: FactValue,
+    #[serde(default, rename = "requires")]
+    requirements: Vec<Requirement>,
 }
 
 impl Fact {
@@ -513,8 +543,67 @@ impl Fact {
         self.key.clone()
     }
 
-    pub fn value(&self) -> Result<String> {
-        self.value.value()
+    pub fn value(&self, vars: &HashMap<String, String>) -> Result<String> {
+        self.value.value(vars)
+    }
+
+    pub fn requirements(&self) -> &[Requirement] {
+        &self.requirements
+    }
+}
+
+#[derive(Debug, Deserialize, PartialEq, Eq, Hash, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum Requirement {
+    Command { command: String },
+    Env { key: String },
+}
+
+impl CheckTrait for Requirement {
+    fn do_check(
+        &self,
+        diff_settings: &DiffSettings,
+        env: &Environment,
+        this_file_path: &Path,
+        vars: &HashMap<String, String>,
+    ) -> Result<Status> {
+        let status = match self {
+            Self::Command { command } => match which::which(command) {
+                Ok(_) => Status::new(false, StatusStatus::Pass),
+                Err(_) => Status::new(
+                    false,
+                    StatusStatus::Fail {
+                        reason: Reason {
+                            main: format!("Command not found '{command}'"),
+                            secondary: Some(format!(
+                                "Required for a check in {}",
+                                this_file_path.display()
+                            )),
+                        },
+                    },
+                ),
+            },
+            Self::Env { key } => match env::var(key) {
+                Ok(_) => Status::new(false, StatusStatus::Pass),
+                Err(_) => Status::new(
+                    false,
+                    StatusStatus::Fail {
+                        reason: Reason {
+                            main: format!("Env var '{key}' not set"),
+                            secondary: Some(format!(
+                                "Required for a check in {}",
+                                this_file_path.display()
+                            )),
+                        },
+                    },
+                ),
+            },
+        };
+        Ok(status)
+    }
+
+    fn describe(&self) -> String {
+        todo!();
     }
 }
 
@@ -526,6 +615,8 @@ struct ChecklistFileContents {
     conditions: Vec<Condition>,
     #[serde(rename = "check", default)]
     checks: Vec<Check>,
+    #[serde(rename = "requires", default)]
+    requirements: Vec<Requirement>,
 }
 
 #[derive(Debug)]
@@ -597,7 +688,7 @@ fn rel_to(a: &Path, b: &Path) -> PathBuf {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-struct Reason {
+pub struct Reason {
     main: String,
     secondary: Option<String>,
 }
@@ -633,6 +724,29 @@ pub enum StatusStatus {
     Fail { reason: Reason },
 }
 
+impl StatusStatus {
+    pub fn is_skipped(&self) -> bool {
+        match self {
+            StatusStatus::Skip { .. } => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_success(&self) -> bool {
+        match self {
+            StatusStatus::Pass => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_failure(&self) -> bool {
+        match self {
+            StatusStatus::Fail { .. } => true,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Status {
     status: StatusStatus,
@@ -661,6 +775,18 @@ impl Status {
         self.cached
     }
 
+    pub fn is_skipped(&self) -> bool {
+        self.status.is_skipped()
+    }
+
+    pub fn is_success(&self) -> bool {
+        self.status.is_success()
+    }
+
+    pub fn is_failure(&self) -> bool {
+        self.status.is_failure()
+    }
+
     pub fn status(&self) -> &StatusStatus {
         &self.status
     }
@@ -671,7 +797,7 @@ impl Display for Status {
         let s = match self.status() {
             StatusStatus::Pass => "Pass",
             StatusStatus::Skip { reason } => &format!("Skipped ({reason})"),
-            StatusStatus::Fail { reason } => &format!("Skipped ({reason})"),
+            StatusStatus::Fail { reason } => &format!("Failed ({reason})"),
         };
         write!(f, "{s}")
     }
@@ -718,7 +844,6 @@ impl Statuses {
     }
 
     pub fn print(&self) {
-        let mut s = String::new();
         let last_index = self.map.len() - 1;
         for (i, (checklist_path, checks)) in self.map.iter().enumerate() {
             let checklist_name = checklist_path.file_name().unwrap().to_str().unwrap();

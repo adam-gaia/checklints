@@ -1,75 +1,14 @@
-use anyhow::Error;
 use anyhow::{bail, Result};
+use checklist::cli::Cli;
+use checklist::project::Project;
+use checklist::settings::{write_default_config, Settings};
+use checklist::{CONFIG_FILE_NAME, THIS_CRATE_NAME};
 use clap::Parser;
-use derive_more::Display;
 use different::DiffSettings;
 use directories::ProjectDirs;
 use log::debug;
-use log::error;
-use log::info;
-use log::warn;
-use minijinja::path_loader;
-use minijinja::Environment;
-use project::Project;
-use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
-use std::collections::HashMap;
 use std::env;
-use std::fs::{self, File};
-use std::io::{BufReader, BufWriter};
-use std::io::{Read, Write};
-use std::path::{Path, PathBuf};
-mod cache;
-mod settings;
-use settings::{write_default_config, Settings};
-mod command;
-mod project;
-mod types;
-
-const THIS_CRATE_NAME: &str = env!("CARGO_PKG_NAME");
-const INDENT: &str = "    ";
-const CONFIG_FILE_NAME: &str = "config.toml";
-
-#[derive(Parser)]
-struct Cli {
-    /// Display more output
-    #[clap(short, long)]
-    verbose: bool,
-
-    /// Additional checklist files (or directories of) to use
-    #[clap(short, long = "check", value_name = "CHECK_FILE")]
-    checks: Vec<PathBuf>,
-
-    /// Directory of project to auit
-    #[clap(value_name = "PROJECT_DIR")]
-    project_dir: Option<PathBuf>,
-
-    /// Do not read from cache
-    #[clap(long)]
-    no_read_cache: bool,
-
-    /// Do not write to cache
-    #[clap(long)]
-    no_write_cache: bool,
-
-    /// Do not try to read from or write to cache
-    /// Implies 'no-read-cache' and 'no-write-cache'
-    #[clap(short, long)]
-    no_cache: bool,
-
-    /// Delete cache file before running
-    #[clap(long)]
-    clear_cache: bool,
-
-    /// Do not use user-wide checklists from ~/.config/checklist
-    #[clap(long)]
-    no_user_checklists: bool,
-
-    /// Stop after the first failure
-    /// (Default behavior is to run all checks, even if a previous check has failed)
-    #[clap(long)]
-    fail_fast: bool,
-}
+use std::fs;
 
 fn main() -> Result<()> {
     env_logger::init();

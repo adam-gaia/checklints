@@ -1,13 +1,10 @@
 use crate::settings::Settings;
+use crate::types::CheckTrait;
 use anyhow::bail;
 use anyhow::Result;
 use different::DiffSettings;
-use directories::ProjectDirs;
 use log::debug;
 use minijinja::Environment;
-use std::cell::RefCell;
-use std::env;
-use std::fmt::Display;
 use std::fs;
 use std::{
     collections::HashMap,
@@ -16,7 +13,7 @@ use std::{
 
 use crate::cache::Cache;
 use crate::types::Checklist;
-use crate::types::{Status, Statuses};
+use crate::types::Statuses;
 
 fn checklists_in_dir(path: &Path) -> Result<Vec<Checklist>> {
     let mut checklists = Vec::new();
@@ -75,17 +72,31 @@ fn discover_checklists(
     Ok(checklists)
 }
 
-fn add_template(template_env: &mut Environment, template: &Path) -> Result<()> {
-    let name = template.display().to_string();
-    let contents = fs::read_to_string(template)?;
-    template_env.add_template_owned(name, contents)?;
+fn add_template(template_env: &mut Environment, path: &Path) -> Result<()> {
+    if path.is_dir() {
+        for entry in fs::read_dir(&path)? {
+            let entry = entry?;
+            let path = entry.path();
+            add_template(template_env, &path)?;
+        }
+    } else if path.is_file() {
+        let name = path.display().to_string();
+        debug!("adding template {}", path.display());
+        let contents = fs::read_to_string(path)?;
+        template_env.add_template_owned(name, contents)?;
+    } else {
+        bail!(
+            "Unsupported file type: {}, expected dir or regular file",
+            path.display()
+        );
+    }
+
     Ok(())
 }
 
 #[derive(Debug)]
 pub struct Project<'a> {
     root: PathBuf,
-    /// Under a RefCell for interrior mutability
     cache: Cache,
     checklists: Vec<Checklist>,
     settings: Settings,
@@ -111,10 +122,7 @@ impl<'a> Project<'a> {
         let user_checklists_dir = if settings.user_checklists() {
             // Register user templates
             if user_templates_dir.is_dir() {
-                for entry in fs::read_dir(&user_templates_dir)? {
-                    let entry = entry?;
-                    add_template(&mut template_env, &entry.path())?;
-                }
+                add_template(&mut template_env, &user_templates_dir)?;
             }
 
             Some(user_checklists_dir)
@@ -126,9 +134,19 @@ impl<'a> Project<'a> {
         let checklists = discover_checklists(&dir, user_checklists_dir)?;
         for checklist in &checklists {
             let name = checklist.name()?;
+            let path = checklist.path();
             for fact in checklist.facts() {
+                for requirement in fact.requirements() {
+                    let status =
+                        requirement.do_check(&diff_settings, &template_env, path, &facts)?;
+
+                    if status.is_failure() {
+                        bail!("{status}");
+                    }
+                }
+
                 let k = fact.key();
-                let v = fact.value()?;
+                let v = fact.value(&facts)?;
                 debug!("Found fact '{k}'='{v}' for checklist '{name}'");
                 facts.insert(k, v);
             }

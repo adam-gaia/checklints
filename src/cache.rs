@@ -1,14 +1,12 @@
 use crate::types::Check;
 use crate::types::CheckType;
 use crate::types::Status;
-use anyhow::bail;
 use anyhow::Result;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use blake3::Hasher;
 use log::debug;
 use serde::Deserialize;
 use serde::Serialize;
-use std::fmt::Display;
 use std::fs;
 use std::fs::File;
 use std::io::Write;

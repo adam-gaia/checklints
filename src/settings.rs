@@ -1,6 +1,6 @@
-use crate::Cli;
+use crate::cli::Cli;
 
-use super::THIS_CRATE_NAME;
+use crate::THIS_CRATE_NAME;
 use anyhow::{bail, Result};
 use log::debug;
 use serde::{Deserialize, Serialize};
