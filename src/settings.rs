@@ -1,5 +1,6 @@
 use crate::cli::Cli;
 
+use crate::types::RemoteFile;
 use crate::THIS_CRATE_NAME;
 use anyhow::{bail, Result};
 use log::debug;
@@ -33,6 +34,14 @@ fn default_clear_cache() -> bool {
     false
 }
 
+fn default_external_checklists() -> Vec<RemoteFile> {
+    Vec::new()
+}
+
+fn default_external_templates() -> Vec<RemoteFile> {
+    Vec::new()
+}
+
 pub fn write_default_config(path: &Path) -> Result<()> {
     let config = MaybeSettings::default();
     let contents = toml::to_string(&config)?;
@@ -49,6 +58,8 @@ pub struct Settings {
     no_read_cache: bool,
     no_write_cache: bool,
     clear_cache: bool,
+    external_checklists: Vec<RemoteFile>,
+    external_templates: Vec<RemoteFile>,
 }
 
 impl Settings {
@@ -79,6 +90,14 @@ impl Settings {
     pub fn clear_cache(&self) -> bool {
         self.clear_cache
     }
+
+    pub fn external_checklists(&self) -> &[RemoteFile] {
+        &self.external_checklists
+    }
+
+    pub fn external_templates(&self) -> &[RemoteFile] {
+        &self.external_templates
+    }
 }
 
 impl Default for Settings {
@@ -89,6 +108,8 @@ impl Default for Settings {
             no_read_cache: default_no_read_cache(),
             no_write_cache: default_no_write_cache(),
             clear_cache: default_clear_cache(),
+            external_checklists: default_external_checklists(),
+            external_templates: default_external_templates(),
         }
     }
 }
@@ -101,6 +122,10 @@ pub struct MaybeSettings {
     no_write_cache: Option<bool>,
     no_cache: Option<bool>,
     clear_cache: Option<bool>,
+    #[serde(default)]
+    external_checklists: Vec<RemoteFile>,
+    #[serde(default)]
+    external_templates: Vec<RemoteFile>,
 }
 
 impl MaybeSettings {
@@ -141,12 +166,18 @@ impl MaybeSettings {
         let Some(clear_cache) = self.clear_cache else {
             bail!("Settings option 'clear_cache' not set");
         };
+
+        let external_checklists = self.external_checklists;
+        let external_templates = self.external_templates;
+
         Ok(Settings {
             user_checklists,
             fail_fast,
             no_read_cache,
             no_write_cache,
             clear_cache,
+            external_checklists,
+            external_templates,
         })
     }
 }
@@ -160,10 +191,12 @@ impl MaybeSettings {
             no_write_cache: None,
             no_cache: None,
             clear_cache: None,
+            external_checklists: Vec::new(),
+            external_templates: Vec::new(),
         }
     }
 
-    pub fn layer(&mut self, layer: Self) {
+    pub fn layer(&mut self, mut layer: Self) {
         if let Some(enable) = layer.user_checklists {
             self.user_checklists = Some(enable);
         }
@@ -191,6 +224,12 @@ impl MaybeSettings {
         if let Some(enable) = layer.clear_cache {
             self.clear_cache = Some(enable);
         }
+
+        self.external_checklists
+            .append(&mut layer.external_checklists);
+
+        self.external_templates
+            .append(&mut layer.external_templates);
     }
 
     pub fn from_args(args: Cli) -> Self {
@@ -219,6 +258,9 @@ impl MaybeSettings {
         if args.clear_cache {
             layer.clear_cache = Some(true);
         }
+
+        layer.external_checklists = args.external_checklist;
+        layer.external_templates = args.external_template;
 
         layer
     }
@@ -269,6 +311,8 @@ impl Default for MaybeSettings {
             no_write_cache: Some(default_no_write_cache()),
             no_cache: Some(default_no_cache()),
             clear_cache: Some(default_clear_cache()),
+            external_checklists: default_external_checklists(),
+            external_templates: default_external_templates(),
         }
     }
 }
@@ -337,6 +381,26 @@ impl SettingsBuilder {
 
     pub fn clear_cache(mut self, enable: bool) -> Self {
         self.settings.clear_cache = Some(enable);
+        self
+    }
+
+    pub fn add_external_checklist(mut self, checklist: RemoteFile) -> Self {
+        self.settings.external_checklists.push(checklist);
+        self
+    }
+
+    pub fn add_external_template(mut self, template: RemoteFile) -> Self {
+        self.settings.external_templates.push(template);
+        self
+    }
+
+    pub fn set_external_checklists(mut self, checklists: Vec<RemoteFile>) -> Self {
+        self.settings.external_checklists = checklists;
+        self
+    }
+
+    pub fn set_external_templates(mut self, templates: Vec<RemoteFile>) -> Self {
+        self.settings.external_templates = templates;
         self
     }
 }

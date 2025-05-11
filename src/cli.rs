@@ -1,5 +1,6 @@
+use crate::types::RemoteFile;
 use clap::Parser;
-use std::path::PathBuf;
+use std::{path::PathBuf, str::FromStr};
 
 #[derive(Parser)]
 pub struct Cli {
@@ -40,4 +41,23 @@ pub struct Cli {
     /// (Default behavior is to run all checks, even if a previous check has failed)
     #[clap(long)]
     pub(crate) fail_fast: bool,
+
+    /// Pull external checklist from remote
+    #[clap(long)]
+    pub(crate) external_checklist: Vec<RemoteFile>,
+
+    /// Pull external template from remote
+    #[clap(long)]
+    pub(crate) external_template: Vec<RemoteFile>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::CommandFactory;
+
+    #[test]
+    fn verify_clap_args() {
+        Cli::command().debug_assert();
+    }
 }

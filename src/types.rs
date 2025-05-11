@@ -902,3 +902,149 @@ fn print_status(status: &Status, desc: &str, duration: Option<Duration>) {
         }
     }
 }
+
+pub use remote_checklist::RemoteFile;
+
+mod remote_checklist {
+
+    use anyhow::bail;
+    use serde::Deserialize;
+    use serde::Serialize;
+    use std::fmt::Display;
+    use std::str::FromStr;
+    use winnow::ascii::dec_uint;
+    use winnow::combinator::alt;
+    use winnow::combinator::opt;
+    use winnow::combinator::seq;
+    use winnow::error::ContextError;
+    use winnow::prelude::*;
+    use winnow::token::rest;
+    use winnow::token::take_till;
+    use winnow::token::take_until;
+    use winnow::Result;
+
+    fn last_component_of(s: &str) -> String {
+        s.split("/").last().unwrap().to_string()
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct Url {
+        scheme: String,
+        host: String,
+        port: Option<u32>,
+        path: Option<String>,
+        fragment: Option<String>,
+    }
+
+    impl Url {
+        pub fn name(&self) -> String {
+            match &self.path {
+                Some(path) => last_component_of(path),
+                None => {
+                    // Fall back to host
+                    self.host.clone()
+                }
+            }
+        }
+    }
+
+    impl Display for Url {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            let port = match &self.port {
+                Some(port) => format!(":{port}"),
+                None => String::new(),
+            };
+
+            let path = match &self.path {
+                Some(path) => path.clone(),
+                None => String::new(),
+            };
+
+            let fragment = match &self.fragment {
+                Some(fragment) => format!("#{fragment}"),
+                None => String::new(),
+            };
+
+            write!(f, "{}://{}{port}{path}{fragment}", self.scheme, self.host)
+        }
+    }
+
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct RemoteFile {
+        url: Url,
+        hash: Option<String>,
+    }
+
+    impl RemoteFile {
+        pub fn url(&self) -> &Url {
+            &self.url
+        }
+
+        pub fn hash(&self) -> Option<&String> {
+            self.hash.as_ref()
+        }
+    }
+
+    fn scheme(s: &mut &str) -> Result<String> {
+        take_until(1.., "://")
+            .map(|s: &str| s.to_string())
+            .parse_next(s)
+    }
+
+    fn host(s: &mut &str) -> Result<String> {
+        alt((take_till(1.., |c: char| c == ':' || c == '/'), rest))
+            .map(|s: &str| s.to_string())
+            .parse_next(s)
+    }
+
+    fn port(s: &mut &str) -> Result<u32> {
+        let _ = ":".parse_next(s)?;
+        dec_uint.parse_next(s)
+    }
+
+    fn fragment(s: &mut &str) -> Result<String> {
+        let _ = "#".parse_next(s)?;
+        take_until(1.., "::")
+            .map(|s: &str| s.to_string())
+            .parse_next(s)
+    }
+
+    fn url(s: &mut &str) -> Result<Url> {
+        seq! {Url {
+            scheme: scheme,
+            _: "://",
+            host: host,
+            port: opt(port),
+            path: opt(path),
+            fragment: opt(fragment)
+        }}
+        .parse_next(s)
+    }
+
+    fn path(s: &mut &str) -> Result<String> {
+        alt((take_till(0.., |c: char| c == '?' || c == '#'), rest))
+            .map(|s: &str| s.to_string())
+            .parse_next(s)
+    }
+
+    fn hash(s: &mut &str) -> Result<String> {
+        let _ = "::".parse_next(s)?;
+        rest.map(|s: &str| s.to_string()).parse_next(s)
+    }
+
+    fn remote_checklist(s: &mut &str) -> Result<RemoteFile> {
+        let url = url.parse_next(s)?;
+        let hash = opt(hash).parse_next(s)?;
+        Ok(RemoteFile { url, hash })
+    }
+
+    use winnow_parse_error::ParseError;
+    impl FromStr for RemoteFile {
+        type Err = ParseError;
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            remote_checklist
+                .parse(s)
+                .map_err(|e| ParseError::from_parse(e))
+        }
+    }
+}

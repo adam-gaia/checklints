@@ -1,12 +1,15 @@
 use crate::types::Check;
 use crate::types::CheckType;
+use crate::types::RemoteFile;
 use crate::types::Status;
 use anyhow::Result;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use blake3::Hasher;
 use log::debug;
+use log::info;
 use serde::Deserialize;
 use serde::Serialize;
+use std::env::remove_var;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -59,14 +62,16 @@ impl PathMap {
     }
 }
 
-fn cache_files(dir: &Path, project_name: &str) -> (PathBuf, PathBuf, PathBuf) {
+fn cache_files(dir: &Path, project_name: &str) -> (PathBuf, PathBuf, PathBuf, PathBuf) {
     let path_file_name = format!("{project_name}-paths.json");
     let path_file = dir.join(path_file_name);
     let check_file_name = format!("{project_name}-checks.json");
     let check_file = dir.join(check_file_name);
     let facts_file_name = format!("{project_name}-facts.json");
     let facts_file = dir.join(facts_file_name);
-    (path_file, check_file, facts_file)
+    let remote_checklist_name = format!("{project_name}-remotes.json");
+    let remote_checklist_file = dir.join(remote_checklist_name);
+    (path_file, check_file, facts_file, remote_checklist_file)
 }
 
 fn hash_check(check: &Check) -> Result<String> {
@@ -104,26 +109,117 @@ impl CheckMap {
     }
 }
 
+#[derive(Debug)]
+struct ExternalChecklistCache {
+    dir: PathBuf,
+    /// Map hash to path
+    map: HashMap<String, PathBuf>,
+}
+
+use anyhow::bail;
+use reqwest::blocking::get;
+
+fn hash_file_contents(input: &str) -> String {
+    blake3::hash(input.as_bytes()).to_hex().to_string()
+}
+
+#[derive(Debug, Clone)]
+pub enum Ttype {
+    Checklist,
+    Template,
+}
+
+impl ExternalChecklistCache {
+    pub fn new(parent_dir: &Path, map: HashMap<String, PathBuf>) -> Result<Self> {
+        let dir = parent_dir.join("remote-checklists");
+        fs::create_dir_all(&dir)?;
+        Ok(Self { dir, map })
+    }
+
+    pub fn get(&self, hash: &String) -> Option<&PathBuf> {
+        self.map.get(hash)
+    }
+
+    pub fn download_and_insert(
+        &mut self,
+        name: &str,
+        url: &str,
+        hash: Option<String>,
+        ttype: Ttype,
+    ) -> Result<PathBuf> {
+        let dir = match ttype {
+            Ttype::Checklist => self.dir.join("checklists"),
+            Ttype::Template => self.dir.join("templates"),
+        };
+        fs::create_dir_all(&dir)?;
+
+        let dest = dir.join(name);
+
+        let response = get(url)?;
+        let mut f = File::create(&dest)?;
+        let contents = response.text()?;
+        write!(f, "{contents}")?;
+
+        let calculated_hash = hash_file_contents(&contents);
+        if let Some(given_hash) = hash {
+            if given_hash != calculated_hash {
+                bail!("Given hash for {name} {given_hash} != computed hash {calculated_hash}");
+            }
+        }
+        info!("Hash for {name} is {calculated_hash}");
+
+        self.map.insert(calculated_hash, dest.clone());
+        Ok(dest)
+    }
+}
+
 // TODO: rewrite with an sqlite table
 #[derive(Debug)]
 pub struct Cache {
     cache_dir: PathBuf,
     path_map: PathMap,
     check_map: CheckMap,
+    external_checklist_cache: ExternalChecklistCache,
     project_name: String,
     facts: HashMap<String, String>,
 }
 
 impl Cache {
-    pub fn new(cache_dir: PathBuf, project_name: String, facts: HashMap<String, String>) -> Self {
+    pub fn new(
+        cache_dir: PathBuf,
+        project_name: String,
+        facts: HashMap<String, String>,
+    ) -> Result<Self> {
         let cache_dir = cache_dir.join(&project_name);
-        Self {
+        fs::create_dir_all(&cache_dir)?;
+        let external_checklist_cache = ExternalChecklistCache::new(&cache_dir, HashMap::new())?;
+        Ok(Self {
             cache_dir,
             check_map: CheckMap::new(),
             path_map: PathMap::new(),
+            external_checklist_cache,
             project_name,
             facts,
+        })
+    }
+
+    pub fn get_or_dl_external_file(
+        &mut self,
+        name: &str,
+        url: String,
+        hash: Option<String>,
+        ttype: Ttype,
+    ) -> Result<PathBuf> {
+        if let Some(ref hash) = hash {
+            if let Some(path) = self.external_checklist_cache.get(&hash) {
+                return Ok(path.to_path_buf());
+            }
         }
+
+        let path = &self
+            .external_checklist_cache
+            .download_and_insert(name, &url, hash, ttype)?;
+        Ok(path.to_path_buf())
     }
 
     pub fn cache_dir(&self) -> &Path {
@@ -137,32 +233,54 @@ impl Cache {
     pub fn load(cache_dir: PathBuf, project_name: String) -> Result<Option<Self>> {
         let cache_dir = cache_dir.join(&project_name);
 
-        let (path_cache_file, check_cache_file, facts_cache_file) =
+        let (path_cache_file, check_cache_file, facts_cache_file, remote_checklist_cache_file) =
             cache_files(&cache_dir, &project_name);
         debug!(
-            "Loading cache files: {}, {}, {}",
+            "Loading cache files: {}, {}, {}, {}",
             path_cache_file.display(),
             check_cache_file.display(),
-            facts_cache_file.display()
+            facts_cache_file.display(),
+            remote_checklist_cache_file.display(),
         );
 
         if !(path_cache_file.is_file() && check_cache_file.is_file()) {
             return Ok(None);
         }
 
-        let contents = fs::read_to_string(&path_cache_file)?;
-        let path_map: PathMap = serde_json::from_str(&contents)?;
+        let path_map = if path_cache_file.is_file() {
+            let contents = fs::read_to_string(&path_cache_file)?;
+            serde_json::from_str(&contents)?
+        } else {
+            PathMap::new()
+        };
 
-        let contents = fs::read_to_string(&check_cache_file)?;
-        let check_map: CheckMap = serde_json::from_str(&contents)?;
+        let check_map = if check_cache_file.is_file() {
+            let contents = fs::read_to_string(&check_cache_file)?;
+            serde_json::from_str(&contents)?
+        } else {
+            CheckMap::new()
+        };
 
-        let contents = fs::read_to_string(&facts_cache_file)?;
-        let facts: HashMap<String, String> = serde_json::from_str(&contents)?;
+        let facts = if facts_cache_file.is_file() {
+            let contents = fs::read_to_string(&facts_cache_file)?;
+            serde_json::from_str(&contents)?
+        } else {
+            HashMap::new()
+        };
+
+        let external_checklist_cache = if remote_checklist_cache_file.is_file() {
+            let contents = fs::read_to_string(&remote_checklist_cache_file)?;
+            let external_checklist_map: HashMap<String, PathBuf> = serde_json::from_str(&contents)?;
+            ExternalChecklistCache::new(&cache_dir, external_checklist_map)?
+        } else {
+            ExternalChecklistCache::new(&cache_dir, HashMap::new())?
+        };
 
         Ok(Some(Self {
             path_map,
             check_map,
             cache_dir,
+            external_checklist_cache,
             project_name,
             facts,
         }))
@@ -173,13 +291,14 @@ impl Cache {
             fs::create_dir_all(&self.cache_dir)?;
         }
 
-        let (path_cache_file, check_cache_file, facts_cache_file) =
+        let (path_cache_file, check_cache_file, facts_cache_file, external_checklist_cache_file) =
             cache_files(&self.cache_dir, &self.project_name);
         debug!(
-            "Saving cache files: {}, {}, {}",
+            "Saving cache files: {}, {}, {}, {}",
             path_cache_file.display(),
             check_cache_file.display(),
-            facts_cache_file.display()
+            facts_cache_file.display(),
+            external_checklist_cache_file.display(),
         );
 
         let mut f = File::create(&path_cache_file)?;
@@ -192,6 +311,10 @@ impl Cache {
 
         let mut f = File::create(&facts_cache_file)?;
         let contents = serde_json::to_string(&self.facts)?;
+        write!(f, "{contents}")?;
+
+        let mut f = File::create(&external_checklist_cache_file)?;
+        let contents = serde_json::to_string(&self.external_checklist_cache.map)?;
         write!(f, "{contents}")?;
 
         Ok(())

@@ -1,3 +1,4 @@
+use crate::cache::Ttype;
 use crate::settings::Settings;
 use crate::types::CheckTrait;
 use anyhow::bail;
@@ -51,11 +52,36 @@ fn discover_project_checklists(project_dir: &Path) -> Result<Vec<Checklist>> {
     Ok(checklists)
 }
 
+fn discover_remote_checklists(settings: &Settings, cache: &mut Cache) -> Result<Vec<Checklist>> {
+    let mut checklists = Vec::new();
+
+    for external in settings.external_checklists() {
+        let url = external.url();
+        let name = url.name();
+        let hash = external.hash();
+        let path = cache.get_or_dl_external_file(
+            &name,
+            url.to_string(),
+            hash.cloned(),
+            Ttype::Checklist,
+        )?;
+
+        let checklist = Checklist::from_path(path)?;
+        checklists.push(checklist);
+    }
+
+    Ok(checklists)
+}
+
 fn discover_checklists(
     project_dir: &Path,
     user_checklists_dir: Option<PathBuf>,
+    settings: &Settings,
+    cache: &mut Cache,
 ) -> Result<Vec<Checklist>> {
     let mut checklists = Vec::new();
+
+    checklists.append(&mut discover_remote_checklists(settings, cache)?);
 
     if let Some(user_checklists_dir) = user_checklists_dir {
         if !user_checklists_dir.is_dir() {
@@ -105,6 +131,8 @@ pub struct Project<'a> {
     facts: HashMap<String, String>,
 }
 
+// TODO: need to refactor the whole discover templates and checklists thing. Its grown to be spaghetti
+
 impl<'a> Project<'a> {
     pub fn new(
         dir: PathBuf,
@@ -131,7 +159,49 @@ impl<'a> Project<'a> {
         };
 
         let mut facts = HashMap::new();
-        let checklists = discover_checklists(&dir, user_checklists_dir)?;
+
+        let mut cache = match Cache::load(cache_dir.clone(), project_name.to_string())? {
+            Some(cache) => {
+                let cache = if *cache.facts() == facts {
+                    cache
+                } else {
+                    // Facts are out of date, remove old cache entry and create new one
+                    let cache_dir = cache.cache_dir();
+                    fs::remove_dir_all(&cache_dir)?; // TODO: make a method to remove the cache for DRY
+                    Cache::new(
+                        cache_dir.to_path_buf(),
+                        project_name.to_string(),
+                        facts.clone(),
+                    )?
+                };
+
+                let cache = if settings.clear_cache() {
+                    fs::remove_dir_all(&cache_dir)?;
+                    Cache::new(cache_dir.clone(), project_name.to_string(), facts.clone())?
+                } else {
+                    cache
+                };
+
+                cache
+            }
+            None => Cache::new(cache_dir.clone(), project_name.to_string(), facts.clone())?,
+        };
+
+        for template in settings.external_templates() {
+            let url = template.url();
+            let name = url.name();
+            let hash = template.hash();
+            let path = cache.get_or_dl_external_file(
+                &name,
+                url.to_string(),
+                hash.cloned(),
+                Ttype::Template,
+            )?;
+            let path = path.canonicalize()?;
+            add_template(&mut template_env, &path)?;
+        }
+
+        let checklists = discover_checklists(&dir, user_checklists_dir, &settings, &mut cache)?;
         for checklist in &checklists {
             let name = checklist.name()?;
             let path = checklist.path();
@@ -155,33 +225,6 @@ impl<'a> Project<'a> {
                 add_template(&mut template_env, template)?;
             }
         }
-
-        let cache = match Cache::load(cache_dir.clone(), project_name.to_string())? {
-            Some(cache) => {
-                let cache = if *cache.facts() == facts {
-                    cache
-                } else {
-                    // Facts are out of date, remove old cache entry and create new one
-                    let cache_dir = cache.cache_dir();
-                    fs::remove_dir_all(&cache_dir)?; // TODO: make a method to remove the cache for DRY
-                    Cache::new(
-                        cache_dir.to_path_buf(),
-                        project_name.to_string(),
-                        facts.clone(),
-                    )
-                };
-
-                let cache = if settings.clear_cache() {
-                    fs::remove_dir_all(&cache_dir)?;
-                    Cache::new(cache_dir.clone(), project_name.to_string(), facts.clone())
-                } else {
-                    cache
-                };
-
-                cache
-            }
-            None => Cache::new(cache_dir.clone(), project_name.to_string(), facts.clone()),
-        };
 
         Ok(Self {
             root: dir,
