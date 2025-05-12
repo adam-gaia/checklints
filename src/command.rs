@@ -3,8 +3,8 @@ use log::debug;
 use std::collections::HashMap;
 use std::ffi::{OsStr, OsString};
 use std::fmt::Debug;
-use std::os::fd::{BorrowedFd, OwnedFd};
-use std::os::unix::io::{AsFd, AsRawFd, RawFd};
+use std::os::fd::BorrowedFd;
+use std::os::unix::io::AsFd;
 use std::process::{Child, ChildStdout, Command, Stdio};
 
 #[derive(Debug)]
@@ -74,7 +74,7 @@ impl XCommand {
     }
 
     pub fn run(&self, env: Option<&HashMap<String, String>>) -> Result<Output> {
-        let child = spawn(&self, None, env)?;
+        let child = spawn(self, None, env)?;
         let res = child.wait_with_output()?;
         let output = output_to_output(res)?;
         Ok(output)
@@ -97,12 +97,12 @@ pub struct Pipeline {
 
 impl Pipeline {
     pub fn new(command: &str) -> Result<Self> {
-        let foo = command.split("|").map(|x| XCommand::from_single(x));
+        let foo = command.split("|").map(XCommand::from_single);
         let foo = foo.collect::<Result<Vec<_>>>()?;
 
         for cmd in &foo {
             let exec = &cmd.exec;
-            if let Err(_) = which::which(exec) {
+            if which::which(exec).is_err() {
                 bail!("Command {exec:?} not found");
             }
         }

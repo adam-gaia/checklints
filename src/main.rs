@@ -20,12 +20,12 @@ fn main() -> Result<()> {
 
     let config_dir = proj_dirs.config_dir();
     if !config_dir.is_dir() {
-        fs::create_dir_all(&config_dir)?;
+        fs::create_dir_all(config_dir)?;
     }
 
     let cache_dir = proj_dirs.cache_dir();
     if !cache_dir.is_file() {
-        fs::create_dir_all(&cache_dir)?;
+        fs::create_dir_all(cache_dir)?;
     }
 
     let project_dir = match args.project_dir {

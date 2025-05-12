@@ -1,6 +1,6 @@
 use crate::types::RemoteFile;
 use clap::Parser;
-use std::{path::PathBuf, str::FromStr};
+use std::path::PathBuf;
 
 #[derive(Parser)]
 pub struct Cli {

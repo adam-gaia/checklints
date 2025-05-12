@@ -1,4 +1,4 @@
-use crate::command::{run_command, run_command_line};
+use crate::command::run_command_line;
 use crate::INDENT;
 use anyhow::{bail, Result};
 use colored::Colorize;
@@ -38,15 +38,15 @@ fn str_compare<'a>(
     }
 }
 
-fn paths_to_string<'a>(input: &'a [PathBuf]) -> String {
+fn paths_to_string(input: &[PathBuf]) -> String {
     let input: Vec<String> = input.iter().map(|p| p.display().to_string()).collect();
     input.join("\n")
 }
 
-fn dir_compare<'a>(
+fn dir_compare(
     expected: &[PathBuf],
     actual: &[PathBuf],
-    diff_settings: &'a DiffSettings,
+    diff_settings: &DiffSettings,
 ) -> Option<String> {
     let expected = paths_to_string(expected);
     let actual = paths_to_string(actual);
@@ -137,7 +137,7 @@ impl CheckTrait for FileCheck {
         if let Some(expected_contents) = &self.contents {
             if let Some(diff) = str_compare(expected_contents, &actual_contents, diff_settings) {
                 return Ok(Status::fail(
-                    format!("Contents differ"),
+                    "Contents differ".to_string(),
                     Some(diff.to_string()),
                 ));
             }
@@ -185,7 +185,7 @@ impl CheckTrait for FileCheck {
 
 fn dir_contents(dir: &Path) -> Result<Vec<PathBuf>> {
     let mut dirs = Vec::new();
-    for entry in fs::read_dir(&dir)? {
+    for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
         dirs.push(path);
@@ -510,7 +510,7 @@ impl FactValue {
     fn value(&self, vars: &HashMap<String, String>) -> Result<String> {
         let value = match self {
             Self::Command { command } => {
-                let output = run_command_line(&command, Some(vars))?;
+                let output = run_command_line(command, Some(vars))?;
                 let Some(stdout) = output.stdout() else {
                     bail!("Command produced empty output");
                 };
@@ -709,7 +709,7 @@ impl Reason {
 
 impl Display for Reason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let mut s = format!("{}", self.main);
+        let mut s = self.main.to_string();
         if let Some(secondary) = &self.secondary {
             s.push_str(&format!(": {secondary}"));
         };
@@ -809,6 +809,12 @@ pub struct Statuses {
     map: HashMap<PathBuf, HashMap<String, Status>>,
 }
 
+impl Default for Statuses {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Statuses {
     pub fn new() -> Self {
         let map = HashMap::new();
@@ -847,7 +853,7 @@ impl Statuses {
         let last_index = self.map.len() - 1;
         for (i, (checklist_path, checks)) in self.map.iter().enumerate() {
             let checklist_name = checklist_path.file_name().unwrap().to_str().unwrap();
-            print_section_header(&checklist_name);
+            print_section_header(checklist_name);
 
             for (name, status) in checks {
                 print_status(status, name, None); // TODO: introduce timings back
@@ -907,7 +913,6 @@ pub use remote_checklist::RemoteFile;
 
 mod remote_checklist {
 
-    use anyhow::bail;
     use serde::Deserialize;
     use serde::Serialize;
     use std::fmt::Display;
@@ -916,7 +921,7 @@ mod remote_checklist {
     use winnow::combinator::alt;
     use winnow::combinator::opt;
     use winnow::combinator::seq;
-    use winnow::error::ContextError;
+
     use winnow::prelude::*;
     use winnow::token::rest;
     use winnow::token::take_till;
