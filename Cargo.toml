@@ -10,7 +10,7 @@ authors = ["Adam Gaia <git@agaia.dev>"]
 include = ["src/**/*", "LICENSE-*", "README.md", "!**/*_test.*"]
 
 [[bin]]
-name = "checklist"
+name = "check"
 path = "src/main.rs"
 
 [[bin]]
