@@ -4,8 +4,8 @@ description = "Check repositories against toml file(s) of constraints"
 version = "0.2.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-homepage = "TODO"
-repository = "TODO"
+homepage = "https://github.com/adam-gaia/checklints"
+repository = "https://github.com/adam-gaia/checklints"
 authors = ["Adam Gaia <git@agaia.dev>"]
 include = ["src/**/*", "LICENSE-*", "README.md", "!**/*_test.*"]
 
