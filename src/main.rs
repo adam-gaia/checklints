@@ -1,8 +1,8 @@
 use anyhow::{bail, Result};
-use checklist::cli::Cli;
-use checklist::project::Project;
-use checklist::settings::{write_default_config, Settings};
-use checklist::{CONFIG_FILE_NAME, THIS_CRATE_NAME};
+use checklints::cli::Cli;
+use checklints::project::Project;
+use checklints::settings::{write_default_config, Settings};
+use checklints::{CONFIG_FILE_NAME, THIS_CRATE_NAME};
 use clap::Parser;
 use different::DiffSettings;
 use directories::ProjectDirs;

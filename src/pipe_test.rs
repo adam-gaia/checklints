@@ -1,5 +1,5 @@
 use anyhow::Result;
-use checklist::command::Pipeline;
+use checklints::command::Pipeline;
 
 fn main() -> Result<()> {
     env_logger::init();

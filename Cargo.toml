@@ -1,6 +1,6 @@
 [package]
-name = "checklist"
-description = "Check repositories against a toml file of constraints"
+name = "checklints"
+description = "Check repositories against toml file(s) of constraints"
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
