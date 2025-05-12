@@ -7,7 +7,7 @@
   lib = crateBuilder.lib;
   commonArgs = crateBuilder.commonArgs;
 
-  treefmt = inputs.self.lib.mkTreefmt pkgs ./treefmt.nix;
+  treefmt = inputs.self.lib.mkTreefmt pkgs ../treefmt.nix;
   treefmt-bin = treefmt.treefmt-bin;
   treefmt-programs = treefmt.treefmt-programs;
 
@@ -37,6 +37,8 @@ in
         bacon
         oranda
         vale
+        cargo-release
+        cargo-diet
       ]
       # Include the extra packages we use to build our crate
       ++ commonArgs.buildInputs
