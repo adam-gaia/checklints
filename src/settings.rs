@@ -322,6 +322,7 @@ fn prefix_key(key: &str) -> String {
     format!("{prefix}_{key}")
 }
 
+#[derive(Default)]
 pub struct SettingsBuilder {
     settings: MaybeSettings,
 }
@@ -332,7 +333,7 @@ impl SettingsBuilder {
     }
 
     pub fn build(self) -> Result<Settings> {
-        Ok(self.settings.to_settings()?)
+        self.settings.to_settings()
     }
 
     pub fn env_layer(mut self) -> Result<Self> {
@@ -402,13 +403,5 @@ impl SettingsBuilder {
     pub fn set_external_templates(mut self, templates: Vec<RemoteFile>) -> Self {
         self.settings.external_templates = templates;
         self
-    }
-}
-
-impl Default for SettingsBuilder {
-    fn default() -> Self {
-        Self {
-            settings: MaybeSettings::default(),
-        }
     }
 }

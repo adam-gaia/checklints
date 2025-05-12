@@ -1,6 +1,5 @@
 use crate::types::Check;
 use crate::types::CheckType;
-use crate::types::RemoteFile;
 use crate::types::Status;
 use crate::types::StatusStatus;
 use anyhow::Result;
@@ -10,7 +9,6 @@ use log::debug;
 use log::info;
 use serde::Deserialize;
 use serde::Serialize;
-use std::env::remove_var;
 use std::fs;
 use std::fs::File;
 use std::io::Write;
@@ -99,7 +97,7 @@ impl CheckMap {
 
     fn get(&self, check: &Check) -> Result<Option<Status>> {
         let hash = hash_check(check)?;
-        let status = self.map.get(&hash).map(|x| x.clone());
+        let status = self.map.get(&hash).cloned();
         Ok(status)
     }
 
@@ -212,7 +210,7 @@ impl Cache {
         ttype: Ttype,
     ) -> Result<PathBuf> {
         if let Some(ref hash) = hash {
-            if let Some(path) = self.external_checklist_cache.get(&hash) {
+            if let Some(path) = self.external_checklist_cache.get(hash) {
                 return Ok(path.to_path_buf());
             }
         }
@@ -332,7 +330,7 @@ impl Cache {
                 match &self.path_map.get(path) {
                     Some(old_hash) => {
                         // Check if file has changed
-                        let new_hash = hash_file(&path)?;
+                        let new_hash = hash_file(path)?;
                         if **old_hash == new_hash {
                             match &self.check_map.get(check)? {
                                 Some(status) => Some(status).cloned(),

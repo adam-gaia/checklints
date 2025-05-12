@@ -21,7 +21,7 @@ fn checklists_in_dir(path: &Path) -> Result<Vec<Checklist>> {
     for entry in fs::read_dir(path)? {
         let entry = entry?;
         let path = entry.path();
-        if path.extension().map_or(false, |ext| ext == "toml") {
+        if path.extension().is_some_and(|ext| ext == "toml") {
             debug!("Reading '{}'", path.display());
             let checklist = Checklist::from_path(path)?;
             checklists.push(checklist);
@@ -100,7 +100,7 @@ fn discover_checklists(
 
 fn add_template(template_env: &mut Environment, path: &Path) -> Result<()> {
     if path.is_dir() {
-        for entry in fs::read_dir(&path)? {
+        for entry in fs::read_dir(path)? {
             let entry = entry?;
             let path = entry.path();
             add_template(template_env, &path)?;
@@ -133,7 +133,7 @@ pub struct Project<'a> {
 
 // TODO: need to refactor the whole discover templates and checklists thing. Its grown to be spaghetti
 
-impl<'a> Project<'a> {
+impl Project<'_> {
     pub fn new(
         dir: PathBuf,
         settings: Settings,
@@ -167,7 +167,7 @@ impl<'a> Project<'a> {
                 } else {
                     // Facts are out of date, remove old cache entry and create new one
                     let cache_dir = cache.cache_dir();
-                    fs::remove_dir_all(&cache_dir)?; // TODO: make a method to remove the cache for DRY
+                    fs::remove_dir_all(cache_dir)?; // TODO: make a method to remove the cache for DRY
                     Cache::new(
                         cache_dir.to_path_buf(),
                         project_name.to_string(),
@@ -175,14 +175,12 @@ impl<'a> Project<'a> {
                     )?
                 };
 
-                let cache = if settings.clear_cache() {
+                if settings.clear_cache() {
                     fs::remove_dir_all(&cache_dir)?;
                     Cache::new(cache_dir.clone(), project_name.to_string(), facts.clone())?
                 } else {
                     cache
-                };
-
-                cache
+                }
             }
             None => Cache::new(cache_dir.clone(), project_name.to_string(), facts.clone())?,
         };
@@ -250,7 +248,7 @@ impl<'a> Project<'a> {
                 debug!("Running check: {check_name}");
 
                 let status = if self.settings.no_read_cache() {
-                    let status = match self.cache.get(check)? {
+                    match self.cache.get(check)? {
                         Some(status) => {
                             debug!("Check '{check_name}' status pulled from cache");
                             status
@@ -267,8 +265,7 @@ impl<'a> Project<'a> {
                             }
                             status
                         }
-                    };
-                    status
+                    }
                 } else {
                     let status = check.do_check(
                         &self.diff_settings,
