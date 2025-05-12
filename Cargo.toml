@@ -7,6 +7,7 @@ license = "MIT OR Apache-2.0"
 homepage = "TODO"
 repository = "TODO"
 authors = ["Adam Gaia <git@agaia.dev>"]
+include = ["src/**/*", "LICENSE-*", "README.md", "!**/*_test.*"]
 
 [[bin]]
 name = "checklist"
