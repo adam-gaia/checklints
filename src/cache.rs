@@ -2,6 +2,7 @@ use crate::types::Check;
 use crate::types::CheckType;
 use crate::types::RemoteFile;
 use crate::types::Status;
+use crate::types::StatusStatus;
 use anyhow::Result;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine as _};
 use blake3::Hasher;
@@ -373,8 +374,17 @@ impl Cache {
 
         match check.ttype() {
             CheckType::File(f) => {
-                let path = f.path();
-                self.path_map.insert(path.to_path_buf())?;
+                let path = f.path().to_path_buf();
+
+                match status.status() {
+                    StatusStatus::Pass => {
+                        self.path_map.insert(path)?;
+                    }
+                    _ => {
+                        // do nothing
+                    }
+                }
+
                 self.check_map.insert(check, status)?;
             }
             _ => {
