@@ -1,3 +1,3 @@
-# checklist
+# checklints
 
-Check repositories against a toml file of constraints
+Check repositories against toml file(s) of constraints
