@@ -35,18 +35,21 @@ fn main() -> Result<()> {
     let project_dir = project_dir.canonicalize()?;
 
     let config_file = config_dir.join(CONFIG_FILE_NAME);
-    if !config_file.is_file() {
-        write_default_config(&config_file)?;
-    }
+    let config_file = if config_file.is_file() {
+        Some(config_file)
+    } else {
+        None
+    };
 
     let user_checklists_dir = config_dir.join("checklists");
     let user_templates_dir = config_dir.join("templates");
 
-    let settings = Settings::builder()
-        .config_layer(&config_file)?
-        .env_layer()?
-        .arg_layer(args)
-        .build()?;
+    let mut settings = Settings::builder();
+    if let Some(config_file) = config_file {
+        settings = settings.config_layer(&config_file)?;
+    };
+
+    let settings = settings.env_layer()?.arg_layer(args).build()?;
     debug!("{settings:?}");
 
     let diff_settings = DiffSettings::new().names(String::from("expected"), String::from("actual")); // TODO
