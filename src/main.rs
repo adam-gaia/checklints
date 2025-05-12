@@ -18,14 +18,22 @@ fn main() -> Result<()> {
         bail!("Unable to get XDG project dirs");
     };
 
-    let config_dir = proj_dirs.config_dir();
+    let config_dir = if let Some(config_dir) = &args.config_dir {
+        config_dir
+    } else {
+        proj_dirs.config_dir()
+    };
     if !config_dir.is_dir() {
-        fs::create_dir_all(config_dir)?;
+        fs::create_dir_all(&config_dir)?;
     }
 
-    let cache_dir = proj_dirs.cache_dir();
+    let cache_dir = if let Some(cache_dir) = args.cache_dir.clone() {
+        cache_dir
+    } else {
+        proj_dirs.cache_dir().to_path_buf()
+    };
     if !cache_dir.is_file() {
-        fs::create_dir_all(cache_dir)?;
+        fs::create_dir_all(&cache_dir)?;
     }
 
     let project_dir = match args.project_dir {

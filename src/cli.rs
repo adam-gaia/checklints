@@ -4,6 +4,14 @@ use std::path::PathBuf;
 
 #[derive(Parser)]
 pub struct Cli {
+    /// Set config dir
+    #[clap(long)]
+    pub config_dir: Option<PathBuf>,
+
+    /// Set cache dir
+    #[clap(long)]
+    pub cache_dir: Option<PathBuf>,
+
     /// Display more output
     #[clap(short, long)]
     pub(crate) verbose: bool,
