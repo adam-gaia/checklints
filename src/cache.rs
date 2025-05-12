@@ -382,6 +382,7 @@ impl Cache {
                     }
                     _ => {
                         // do nothing
+                        // (If the status wasn't successful, we can't go on to hash a file that doesn't exist)
                     }
                 }
 
