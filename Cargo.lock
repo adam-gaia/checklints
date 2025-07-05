@@ -240,7 +240,7 @@ checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
 
 [[package]]
 name = "checklints"
-version = "0.2.1"
+version = "0.1.0"
 dependencies = [
  "annotate-snippets",
  "anyhow",
@@ -1190,9 +1190,9 @@ checksum = "6877bb514081ee2a7ff5ef9de3281f14a4dd4bceac4c09388074a6b5df8a139a"
 
 [[package]]
 name = "minijinja"
-version = "2.9.0"
+version = "2.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98642a6dfca91122779a307b77cd07a4aa951fbe32232aaf5bad9febc66be754"
+checksum = "4e60ac08614cc09062820e51d5d94c2fce16b94ea4e5003bb81b99a95f84e876"
 dependencies = [
  "memo-map",
  "self_cell",
